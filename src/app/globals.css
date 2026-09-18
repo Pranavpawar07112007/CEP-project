@@ -1,0 +1,150 @@
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 210 40% 98%; /* Very Light Blue */
+    --foreground: 222 47% 11%;
+    --card: 210 40% 100%;
+    --card-foreground: 222 47% 11%;
+    --popover: 210 40% 100%;
+    --popover-foreground: 222 47% 11%;
+    --primary: 217 91% 60%; /* Vibrant Blue */
+    --primary-foreground: 210 40% 98%;
+    --secondary: 210 40% 96.1%;
+    --secondary-foreground: 222 47% 11%;
+    --muted: 210 40% 96.1%;
+    --muted-foreground: 215 28% 45%;
+    --accent: 150 70% 96%; /* Soft Green */
+    --accent-foreground: 150 50% 30%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 214 32% 91%;
+    --input: 214 32% 91%;
+    --ring: 217 91% 60%;
+    --radius: 0.75rem;
+    --chart-1: 12 76% 61%;
+    --chart-2: 173 58% 39%;
+    --chart-3: 197 37% 24%;
+    --chart-4: 43 74% 66%;
+    --chart-5: 27 87% 67%;
+  }
+ 
+  .dark {
+    --background: 222 47% 11%; /* Dark Blue */
+    --foreground: 210 40% 98%;
+    --card: 222 47% 14%;
+    --card-foreground: 210 40% 98%;
+    --popover: 222 47% 11%;
+    --popover-foreground: 210 40% 98%;
+    --primary: 217 91% 60%;
+    --primary-foreground: 210 40% 98%;
+    --secondary: 217 32% 17%;
+    --secondary-foreground: 210 40% 98%;
+    --muted: 217 32% 17%;
+    --muted-foreground: 215 20% 65%;
+    --accent: 150 60% 15%;
+    --accent-foreground: 150 80% 90%;
+    --destructive: 0 63% 51%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 217 32% 21%;
+    --input: 217 32% 21%;
+    --ring: 217 91% 60%;
+    --chart-1: 220 70% 50%;
+    --chart-2: 160 60% 45%;
+    --chart-3: 30 80% 55%;
+    --chart-4: 280 65% 60%;
+    --chart-5: 340 75% 55%;
+  }
+}
+ 
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+    transition: color 1s ease, background-color 1s ease;
+  }
+}
+
+@layer utilities {
+    .glass-card {
+        @apply bg-card/60 backdrop-blur-lg border border-white/10 shadow-lg animate-fade-in-up;
+    }
+    .dark .glass-card {
+        background-color: rgba(20, 25, 30, 0.6);
+    }
+    
+    .glass-effect {
+      @apply bg-background/60 backdrop-blur-lg border border-solid border-white/20 text-foreground;
+    }
+
+    .glass-effect.bg-primary {
+        background-color: hsla(var(--primary) / 0.2);
+    }
+    .dark .glass-effect.bg-primary {
+        background-color: hsla(var(--primary) / 0.3);
+    }
+    
+    .glass-effect.bg-destructive {
+        background-color: hsla(var(--destructive) / 0.2);
+    }
+    .dark .glass-effect.bg-destructive {
+        background-color: hsla(var(--destructive) / 0.3);
+    }
+
+    .glass-effect.bg-popover {
+        background-color: hsla(var(--popover) / 0.6);
+    }
+    .dark .glass-effect.bg-popover {
+        background-color: hsla(var(--popover) / 0.7);
+    }
+
+    .glass-effect.bg-background {
+        background-color: hsla(var(--background) / 0.6);
+    }
+    .dark .glass-effect.bg-background {
+        background-color: hsla(var(--background) / 0.7);
+    }
+
+    .light .glass-effect:not([data-variant='link']) {
+        @apply text-black;
+    }
+}
+
+
+@media print {
+  body {
+    background: white;
+  }
+
+  main > .print-hide,
+  .print-hide {
+    display: none;
+  }
+
+  main > .print-show {
+    display: block;
+  }
+
+  main {
+    padding: 0;
+  }
+
+  @page {
+    size: auto;
+    margin: 0.5in;
+  }
+
+  .card-print {
+    box-shadow: none;
+    border: none;
+  }
+
+  .table-print {
+    border: 1px solid #e2e8f0;
+  }
+}
