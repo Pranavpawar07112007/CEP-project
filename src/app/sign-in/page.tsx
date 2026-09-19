@@ -12,6 +12,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Loader2 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import SplashScreen from '@/components/splash-screen';
@@ -20,6 +21,7 @@ import { createClient } from '@/utils/supabase/client';
 const formSchema = z.object({
   email: z.string().email({ message: 'Please enter a valid email.' }),
   password: z.string().min(1, { message: 'Password is required.' }),
+  keepSignedIn: z.boolean().default(true),
 });
 
 export default function SignInPage() {
@@ -31,7 +33,7 @@ export default function SignInPage() {
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
-    defaultValues: { email: '', password: '' },
+    defaultValues: { email: '', password: '', keepSignedIn: true },
   });
 
   React.useEffect(() => {
@@ -41,8 +43,13 @@ export default function SignInPage() {
   }, [user, loading, router]);
 
   const onSubmit = (values: z.infer<typeof formSchema>) => {
+    localStorage.setItem('keepSignedIn', values.keepSignedIn ? 'true' : 'false');
+    
     startTransition(async () => {
-      const { error } = await supabase.auth.signInWithPassword({
+      // Re-initialize client so it reads the new localStorage value before signing in
+      const freshSupabase = createClient();
+      
+      const { error } = await freshSupabase.auth.signInWithPassword({
         email: values.email,
         password: values.password,
       });
@@ -101,6 +108,25 @@ export default function SignInPage() {
                       <Input type="password" placeholder="••••••••" className="bg-background/50" {...field} />
                     </FormControl>
                     <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="keepSignedIn"
+                render={({ field }) => (
+                  <FormItem className="flex flex-row items-start space-x-3 space-y-0 p-1">
+                    <FormControl>
+                      <Checkbox
+                        checked={field.value}
+                        onCheckedChange={field.onChange}
+                      />
+                    </FormControl>
+                    <div className="space-y-1 leading-none">
+                      <FormLabel>
+                        Keep me signed in
+                      </FormLabel>
+                    </div>
                   </FormItem>
                 )}
               />
