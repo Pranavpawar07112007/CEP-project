@@ -9,19 +9,54 @@ import * as React from 'react';
 import { createClient } from '@/utils/supabase/client';
 import { cancelRegistration } from '@/app/actions/admin';
 import { useToast } from '@/hooks/use-toast';
+import { useConfirmDialog } from '@/components/ui/confirm-dialog';
 
 export default function PendingApprovalPage() {
+  return (
+    <React.Suspense fallback={<div className="min-h-screen flex items-center justify-center"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>}>
+      <PendingApprovalContent />
+    </React.Suspense>
+  );
+}
+
+function PendingApprovalContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const { toast } = useToast();
   const supabase = createClient();
   const [isCancelling, setIsCancelling] = React.useState(false);
+  const { confirm, ConfirmDialogNode } = useConfirmDialog();
   const type = searchParams.get('type');
 
   const isSociety = type === 'society';
 
+  const handleCancel = async () => {
+    const ok = await confirm({
+      title: 'Cancel Your Request?',
+      description: isSociety
+        ? 'This will permanently delete your society registration and your account. You will need to register again from scratch.'
+        : 'This will permanently delete your join request and your account. This cannot be undone.',
+      confirmLabel: 'Yes, Cancel & Delete Account',
+      cancelLabel: 'Keep Waiting',
+      variant: 'danger',
+    });
+    if (!ok) return;
+
+    setIsCancelling(true);
+    const res = await cancelRegistration();
+    if (res.error) {
+      toast({ variant: 'destructive', title: 'Error', description: res.error });
+      setIsCancelling(false);
+    } else {
+      await supabase.auth.signOut();
+      router.push('/sign-in');
+    }
+  };
+
   return (
     <main className="flex min-h-screen flex-col items-center justify-center bg-background p-4 relative overflow-hidden">
+      {ConfirmDialogNode}
+
       <div className="absolute top-[-10%] left-[-10%] w-96 h-96 bg-yellow-400/10 rounded-full blur-[100px] pointer-events-none" />
       <div className="absolute bottom-[-10%] right-[-10%] w-96 h-96 bg-primary/10 rounded-full blur-[100px] pointer-events-none" />
 
@@ -47,14 +82,14 @@ export default function PendingApprovalPage() {
             <div>
               <p className="text-sm font-medium">Why verification?</p>
               <p className="text-xs text-muted-foreground mt-1">
-                We verify all registrations to ensure data security and maintain the integrity of each society's private data.
+                We verify all registrations to ensure data security and maintain the integrity of each society&apos;s private data.
               </p>
             </div>
           </div>
           <div className="flex flex-col gap-2 pt-2">
-            <Button 
-              variant="outline" 
-              className="w-full gap-2" 
+            <Button
+              variant="outline"
+              className="w-full gap-2"
               onClick={async () => {
                 await supabase.auth.signOut();
                 router.push('/sign-in');
@@ -63,26 +98,15 @@ export default function PendingApprovalPage() {
               <LogOut className="h-4 w-4" />
               Sign Out Securely
             </Button>
-            
-            <Button 
-              variant="ghost" 
+
+            <Button
+              variant="ghost"
               className="w-full text-destructive hover:text-destructive hover:bg-destructive/10 gap-2"
               disabled={isCancelling}
-              onClick={async () => {
-                if (!confirm('Are you sure you want to cancel your request? This will permanently delete your account.')) return;
-                setIsCancelling(true);
-                const res = await cancelRegistration();
-                if (res.error) {
-                  toast({ variant: 'destructive', title: 'Error', description: res.error });
-                  setIsCancelling(false);
-                } else {
-                  await supabase.auth.signOut();
-                  router.push('/sign-in');
-                }
-              }}
+              onClick={handleCancel}
             >
               {isCancelling ? <Loader2 className="h-4 w-4 animate-spin" /> : <XCircle className="h-4 w-4" />}
-              Cancel Request & Delete Account
+              Cancel Request &amp; Delete Account
             </Button>
           </div>
         </CardContent>

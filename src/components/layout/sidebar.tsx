@@ -10,7 +10,7 @@ import { Sheet, SheetContent, SheetTrigger, SheetTitle } from '@/components/ui/s
 import { 
   Building2, LayoutDashboard, Home, CreditCard, MessageSquare, Vote, 
   ClipboardList, CalendarDays, FileBarChart, LogOut, Users, ShieldCheck, 
-  ChevronLeft, ChevronRight, Menu 
+  ChevronLeft, ChevronRight, Menu, Settings
 } from 'lucide-react';
 
 const SUPER_ADMIN_EMAIL = process.env.NEXT_PUBLIC_SUPER_ADMIN_EMAIL || 'pranav07112007@gmail.com';
@@ -102,7 +102,7 @@ export function Sidebar() {
               <Link
                 href="/dashboard/admin/users"
                 onClick={() => setMobileOpen(false)}
-                title={isCollapsed ? 'Member Approvals' : undefined}
+                title={isCollapsed ? 'Members' : undefined}
                 className={cn(
                   "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all hover:bg-accent hover:text-accent-foreground",
                   isActive('/dashboard/admin/users')
@@ -111,7 +111,23 @@ export function Sidebar() {
                 )}
               >
                 <Users className="h-4 w-4 shrink-0" />
-                {!isCollapsed && <span>Member Approvals</span>}
+                {!isCollapsed && <span>Members</span>}
+              </Link>
+            )}
+            {profile?.role === 'ADMIN' && (
+              <Link
+                href="/dashboard/settings"
+                onClick={() => setMobileOpen(false)}
+                title={isCollapsed ? 'Settings' : undefined}
+                className={cn(
+                  "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all hover:bg-accent hover:text-accent-foreground",
+                  isActive('/dashboard/settings')
+                    ? "bg-primary text-primary-foreground hover:bg-primary/90"
+                    : "text-muted-foreground"
+                )}
+              >
+                <Settings className="h-4 w-4 shrink-0" />
+                {!isCollapsed && <span>Settings</span>}
               </Link>
             )}
             {isSuperAdmin && (

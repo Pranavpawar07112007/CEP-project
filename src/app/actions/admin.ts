@@ -65,6 +65,9 @@ export async function registerNewSociety(data: {
         name: data.societyName,
         status: 'PENDING',
         admin_email: data.email,
+        onboarding_completed: false,
+        society_balance: 0,
+        mode: 'COMMUNITY',
       })
       .select('id')
       .single();
@@ -294,7 +297,9 @@ export async function cancelRegistration() {
       .single();
 
     if (society && society.status === 'PENDING') {
-      // Delete the society entirely. (This will also wipe profiles if RLS/cascade is setup, but we'll manually clean up just in case)
+      // Delete join requests first
+      await service.from('join_requests').delete().eq('society_id', society.id);
+      // Delete the society
       await service.from('societies').delete().eq('id', society.id);
     } else {
       // If they are just a pending member, delete their join request
@@ -324,21 +329,19 @@ export async function updateSocietyMode(mode: 'COMMUNITY' | 'ADMIN_ONLY') {
   const service = getServiceClient();
 
   try {
-    // Get their profile to find their society ID
     const { data: profile } = await service
       .from('profiles')
       .select('society_id, role')
       .eq('id', user.id)
       .single();
 
-    if (!profile || !profile.society_id || profile.role !== 'ADMIN') {
+    if (!profile || !profile.society_id || !['ADMIN', 'SECRETARY'].includes(profile.role)) {
       return { error: 'Only the society admin can set the mode.' };
     }
 
-    // Update the society
     const { error } = await service
       .from('societies')
-      .update({ mode, onboarding_completed: true })
+      .update({ mode })
       .eq('id', profile.society_id);
 
     if (error) throw error;
@@ -346,6 +349,145 @@ export async function updateSocietyMode(mode: 'COMMUNITY' | 'ADMIN_ONLY') {
     return { success: true };
   } catch (err: any) {
     return { error: err.message || 'Failed to update society mode.' };
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// SETUP: Complete admin first-time onboarding
+// ─────────────────────────────────────────────────────────────
+export async function completeAdminSetup(data: {
+  mode: 'COMMUNITY' | 'ADMIN_ONLY';
+  address?: string;
+  city?: string;
+  state?: string;
+  zipCode?: string;
+  phone?: string;
+  flatNumber?: string;
+  societyBalance?: number;
+}) {
+  const user = await getCurrentUser();
+  if (!user) return { error: 'Not authenticated' };
+
+  const service = getServiceClient();
+
+  try {
+    const { data: profile } = await service
+      .from('profiles')
+      .select('society_id, role')
+      .eq('id', user.id)
+      .single();
+
+    if (!profile || !profile.society_id || !['ADMIN'].includes(profile.role)) {
+      return { error: 'Only the society admin can complete setup.' };
+    }
+
+    // Update society
+    const { error: socErr } = await service
+      .from('societies')
+      .update({
+        mode: data.mode,
+        address: data.address || null,
+        city: data.city || null,
+        state: data.state || null,
+        zip_code: data.zipCode || null,
+        phone: data.phone || null,
+        society_balance: data.societyBalance ?? 0,
+        onboarding_completed: true,
+      })
+      .eq('id', profile.society_id);
+
+    if (socErr) throw socErr;
+
+    // Update admin profile with flat number and phone
+    const { error: profErr } = await service
+      .from('profiles')
+      .update({
+        flat_number: data.flatNumber || null,
+        phone: data.phone || null,
+      })
+      .eq('id', user.id);
+
+    if (profErr) throw profErr;
+
+    return { success: true };
+  } catch (err: any) {
+    return { error: err.message || 'Failed to complete setup.' };
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// ADMIN: Update society balance (opening/current balance)
+// ─────────────────────────────────────────────────────────────
+export async function updateSocietyBalance(amount: number) {
+  const user = await getCurrentUser();
+  if (!user) return { error: 'Not authenticated' };
+
+  const service = getServiceClient();
+
+  try {
+    const { data: profile } = await service
+      .from('profiles')
+      .select('society_id, role')
+      .eq('id', user.id)
+      .single();
+
+    if (!profile || !['ADMIN', 'SECRETARY'].includes(profile.role)) {
+      return { error: 'Unauthorized.' };
+    }
+
+    const { error } = await service
+      .from('societies')
+      .update({ society_balance: amount })
+      .eq('id', profile.society_id);
+
+    if (error) throw error;
+    return { success: true };
+  } catch (err: any) {
+    return { error: err.message || 'Failed to update balance.' };
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// ADMIN: Update a member's role
+// ─────────────────────────────────────────────────────────────
+export async function updateMemberRole(memberId: string, role: 'ADMIN' | 'SECRETARY' | 'OWNER' | 'RESIDENT') {
+  const user = await getCurrentUser();
+  if (!user) return { error: 'Not authenticated' };
+
+  const service = getServiceClient();
+
+  try {
+    // Only ADMIN can change roles
+    const { data: adminProfile } = await service
+      .from('profiles')
+      .select('society_id, role')
+      .eq('id', user.id)
+      .single();
+
+    if (!adminProfile || adminProfile.role !== 'ADMIN') {
+      return { error: 'Only the society admin can change member roles.' };
+    }
+
+    // Ensure target member is in the same society
+    const { data: targetProfile } = await service
+      .from('profiles')
+      .select('society_id, first_name, last_name')
+      .eq('id', memberId)
+      .single();
+
+    if (!targetProfile || targetProfile.society_id !== adminProfile.society_id) {
+      return { error: 'Member not found in your society.' };
+    }
+
+    const { error } = await service
+      .from('profiles')
+      .update({ role })
+      .eq('id', memberId);
+
+    if (error) throw error;
+    return { success: true };
+  } catch (err: any) {
+    return { error: err.message || 'Failed to update member role.' };
   }
 }
 
@@ -366,7 +508,7 @@ export async function createOfflineMember(data: {
 
   try {
     const { data: profile } = await service.from('profiles').select('society_id, role').eq('id', user.id).single();
-    if (!profile || !profile.society_id || profile.role !== 'ADMIN') return { error: 'Unauthorized' };
+    if (!profile || !profile.society_id || !['ADMIN', 'SECRETARY'].includes(profile.role)) return { error: 'Unauthorized' };
 
     // Create auth user (auto-confirm so they don't get verification emails from Supabase)
     const { data: authData, error: authErr } = await service.auth.admin.createUser({
@@ -382,7 +524,7 @@ export async function createOfflineMember(data: {
       id: userId,
       society_id: profile.society_id,
       role: 'RESIDENT',
-      status: 'ACTIVE', // Automatically active
+      status: 'ACTIVE',
       first_name: data.firstName,
       last_name: data.lastName,
       phone: data.phone,
@@ -398,6 +540,7 @@ export async function createOfflineMember(data: {
 
 // ─────────────────────────────────────────────────────────────
 // SUPER ADMIN: Completely delete a society and all its users
+// BUG FIX: Now correctly deletes all related records + auth users
 // ─────────────────────────────────────────────────────────────
 export async function deleteSocietyCompletely(societyId: string) {
   const SUPER_ADMIN_EMAIL = process.env.NEXT_PUBLIC_SUPER_ADMIN_EMAIL || 'pranav07112007@gmail.com';
@@ -409,26 +552,55 @@ export async function deleteSocietyCompletely(societyId: string) {
   const service = getServiceClient();
 
   try {
-    // 1. Find all users in this society
+    // 1. Get all user IDs in this society FIRST (before deleting anything)
     const { data: profiles } = await service
       .from('profiles')
       .select('id')
       .eq('society_id', societyId);
 
-    // 2. Delete all those users from Supabase Auth (this cascades to profiles)
-    if (profiles && profiles.length > 0) {
-      for (const p of profiles) {
-        await service.auth.admin.deleteUser(p.id);
-      }
+    const userIds = profiles?.map(p => p.id) || [];
+
+    // 2. Delete join_requests (has FK to auth.users which gets deleted)
+    //    Must delete before auth user deletion
+    await service.from('join_requests').delete().eq('society_id', societyId);
+
+    // 3. Delete all cascading data manually (in case of FK constraint issues)
+    await service.from('transactions').delete().eq('society_id', societyId);
+    await service.from('maintenance_bills').delete().eq('society_id', societyId);
+    await service.from('expenses').delete().eq('society_id', societyId);
+    await service.from('notices').delete().eq('society_id', societyId);
+    await service.from('complaints').delete().eq('society_id', societyId);
+    await service.from('hall_allocations').delete().eq('society_id', societyId);
+    await service.from('properties').delete().eq('society_id', societyId);
+
+    // 4. Delete elections & related (needs separate handling)
+    const { data: elections } = await service.from('elections').select('id').eq('society_id', societyId);
+    if (elections && elections.length > 0) {
+      const electionIds = elections.map(e => e.id);
+      await service.from('votes').delete().in('election_id', electionIds);
+      await service.from('candidates').delete().in('election_id', electionIds);
+      await service.from('elections').delete().eq('society_id', societyId);
     }
 
-    // 3. Delete the society itself (this cascades to properties, bills, notices, etc.)
-    const { error: delErr } = await service
+    // 5. Delete profiles (must happen before deleting auth users)
+    await service.from('profiles').delete().eq('society_id', societyId);
+
+    // 6. Delete the society itself
+    const { error: delSocErr } = await service
       .from('societies')
       .delete()
       .eq('id', societyId);
 
-    if (delErr) throw delErr;
+    if (delSocErr) throw delSocErr;
+
+    // 7. Delete all auth users (do this LAST after all FK references removed)
+    for (const userId of userIds) {
+      const { error: authDelErr } = await service.auth.admin.deleteUser(userId);
+      if (authDelErr) {
+        console.error(`Failed to delete auth user ${userId}:`, authDelErr.message);
+        // Continue even if one user deletion fails
+      }
+    }
 
     return { success: true };
   } catch (err: any) {

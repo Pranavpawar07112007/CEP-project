@@ -11,6 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { useToast } from '@/hooks/use-toast';
 import { PlusCircle, FileBarChart, Loader2, Trash2, Download, TrendingUp } from 'lucide-react';
 import { createExpense, deleteExpense } from '@/app/actions/modules';
+import { useConfirmDialog } from '@/components/ui/confirm-dialog';
 import jsPDF from 'jspdf';
 
 type Expense = {
@@ -45,6 +46,7 @@ export default function ReportsPage() {
   const [form, setForm] = React.useState({ description: '', amount: '', expense_date: '', category: 'GENERAL' });
 
   const isAdmin = profile?.role === 'ADMIN' || profile?.role === 'SECRETARY';
+  const { confirm, ConfirmDialogNode } = useConfirmDialog();
 
   const fetchExpenses = React.useCallback(async () => {
     if (!profile) return;
@@ -80,9 +82,16 @@ export default function ReportsPage() {
     });
   };
 
-  const handleDelete = async (id: string) => {
-    await deleteExpense(id);
-    toast({ title: 'Expense removed.' });
+  const handleDelete = async (expense: Expense) => {
+    const ok = await confirm({
+      title: 'Delete Expense?',
+      description: `Remove "${expense.description}" (₹${Number(expense.amount).toLocaleString('en-IN')}) from records? This cannot be undone.`,
+      confirmLabel: 'Delete',
+      variant: 'danger',
+    });
+    if (!ok) return;
+    await deleteExpense(expense.id);
+    toast({ title: '🗑️ Expense removed.' });
     fetchExpenses();
   };
 
@@ -164,6 +173,7 @@ export default function ReportsPage() {
 
   return (
     <div className="space-y-6 animate-fade-in">
+      {ConfirmDialogNode}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Annual Report</h1>
@@ -285,7 +295,7 @@ export default function ReportsPage() {
                 <div className="flex items-center gap-3">
                   <span className="font-semibold text-primary">₹{Number(e.amount).toLocaleString('en-IN')}</span>
                   {isAdmin && (
-                    <Button size="icon" variant="ghost" className="opacity-0 group-hover:opacity-100 transition-opacity h-7 w-7 text-destructive hover:text-destructive hover:bg-destructive/10" onClick={() => handleDelete(e.id)}>
+                    <Button size="icon" variant="ghost" className="opacity-0 group-hover:opacity-100 transition-opacity h-7 w-7 text-destructive hover:text-destructive hover:bg-destructive/10" onClick={() => handleDelete(e)}>
                       <Trash2 className="h-3.5 w-3.5" />
                     </Button>
                   )}

@@ -5,12 +5,12 @@ import { useRouter } from 'next/navigation';
 import { createClient } from '@/utils/supabase/client';
 import { useAuth } from '@/hooks/use-auth';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { useToast } from '@/hooks/use-toast';
 import { CheckCircle2, XCircle, Building2, Clock, ShieldCheck, Trash2, Loader2 } from 'lucide-react';
 import SplashScreen from '@/components/splash-screen';
 import { updateSocietyStatus, deleteSocietyCompletely } from '@/app/actions/admin';
+import { useConfirmDialog } from '@/components/ui/confirm-dialog';
 
 const SUPER_ADMIN_EMAIL = process.env.NEXT_PUBLIC_SUPER_ADMIN_EMAIL || 'pranav07112007@gmail.com';
 
@@ -27,6 +27,7 @@ export default function SuperAdminPage() {
   const router = useRouter();
   const { toast } = useToast();
   const supabase = createClient();
+  const { confirm, ConfirmDialogNode } = useConfirmDialog();
 
   const [societies, setSocieties] = React.useState<Society[]>([]);
   const [fetching, setFetching] = React.useState(true);
@@ -55,12 +56,11 @@ export default function SuperAdminPage() {
   const handleAction = async (id: string, action: 'ACTIVE' | 'SUSPENDED') => {
     setActionPending(id);
     const result = await updateSocietyStatus(id, action);
-
     if (result.error) {
       toast({ variant: 'destructive', title: 'Error', description: result.error });
     } else {
       toast({
-        title: action === 'ACTIVE' ? '✅ Society Approved' : '❌ Society Suspended',
+        title: action === 'ACTIVE' ? '✅ Society Approved' : '⚠️ Society Suspended',
         description: action === 'ACTIVE'
           ? 'The society is now active. Members can access the platform.'
           : 'The society has been suspended.',
@@ -70,15 +70,33 @@ export default function SuperAdminPage() {
     setActionPending(null);
   };
 
+  const handleSuspendConfirm = async (id: string, name: string) => {
+    const ok = await confirm({
+      title: `Suspend "${name}"?`,
+      description: 'Suspending this society will prevent all members from accessing the platform. You can re-activate it anytime.',
+      confirmLabel: 'Suspend Society',
+      cancelLabel: 'Keep Active',
+      variant: 'warning',
+    });
+    if (ok) handleAction(id, 'SUSPENDED');
+  };
+
   const handleDelete = async (id: string, name: string) => {
-    if (!confirm(`Are you absolutely sure you want to completely delete "${name}"? This will delete all users, properties, complaints, and bills associated with it. This cannot be undone.`)) return;
-    
+    const ok = await confirm({
+      title: `Permanently Delete "${name}"?`,
+      description: 'This will delete ALL society data — every member, bill, complaint, transaction, and document. This action is irreversible and cannot be undone.',
+      confirmLabel: 'Yes, Delete Permanently',
+      cancelLabel: 'Cancel',
+      variant: 'danger',
+    });
+    if (!ok) return;
+
     setActionPending(id);
     const result = await deleteSocietyCompletely(id);
     if (result.error) {
       toast({ variant: 'destructive', title: 'Error', description: result.error });
     } else {
-      toast({ title: 'Society Deleted', description: 'The society and all its users have been permanently wiped.' });
+      toast({ title: '🗑️ Society Deleted', description: 'The society and all its data have been permanently removed.' });
       fetchSocieties();
     }
     setActionPending(null);
@@ -92,6 +110,7 @@ export default function SuperAdminPage() {
 
   return (
     <div className="min-h-screen bg-background p-6 md:p-10">
+      {ConfirmDialogNode}
       <div className="max-w-5xl mx-auto space-y-8">
         {/* Header */}
         <div className="flex items-center gap-4">
@@ -120,14 +139,21 @@ export default function SuperAdminPage() {
           ))}
         </div>
 
-        {/* Pending Section */}
+        {/* Pending */}
         {pending.length > 0 && (
           <div className="space-y-3">
             <h2 className="text-xl font-semibold flex items-center gap-2">
               <Clock className="h-5 w-5 text-yellow-500" /> Awaiting Approval
             </h2>
             {pending.map(s => (
-              <SocietyCard key={s.id} society={s} onApprove={() => handleAction(s.id, 'ACTIVE')} onSuspend={() => handleAction(s.id, 'SUSPENDED')} onDelete={() => handleDelete(s.id, s.name)} actionPending={actionPending === s.id} />
+              <SocietyCard
+                key={s.id}
+                society={s}
+                onApprove={() => handleAction(s.id, 'ACTIVE')}
+                onSuspend={() => handleSuspendConfirm(s.id, s.name)}
+                onDelete={() => handleDelete(s.id, s.name)}
+                actionPending={actionPending === s.id}
+              />
             ))}
           </div>
         )}
@@ -140,7 +166,14 @@ export default function SuperAdminPage() {
           {fetching && <p className="text-muted-foreground text-sm">Loading...</p>}
           {!fetching && societies.length === 0 && <p className="text-muted-foreground text-sm">No societies registered yet.</p>}
           {societies.filter(s => s.status !== 'PENDING').map(s => (
-            <SocietyCard key={s.id} society={s} onApprove={() => handleAction(s.id, 'ACTIVE')} onSuspend={() => handleAction(s.id, 'SUSPENDED')} onDelete={() => handleDelete(s.id, s.name)} actionPending={actionPending === s.id} />
+            <SocietyCard
+              key={s.id}
+              society={s}
+              onApprove={() => handleAction(s.id, 'ACTIVE')}
+              onSuspend={() => handleSuspendConfirm(s.id, s.name)}
+              onDelete={() => handleDelete(s.id, s.name)}
+              actionPending={actionPending === s.id}
+            />
           ))}
         </div>
       </div>
@@ -171,10 +204,12 @@ function SocietyCard({ society, onApprove, onSuspend, onDelete, actionPending }:
             </div>
             <div>
               <p className="font-semibold">{society.name}</p>
-              <p className="text-xs text-muted-foreground">{society.admin_email} · {new Date(society.created_at).toLocaleDateString('en-IN')}</p>
+              <p className="text-xs text-muted-foreground">
+                {society.admin_email} · {new Date(society.created_at).toLocaleDateString('en-IN')}
+              </p>
             </div>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
             <span className={`text-xs font-medium px-2.5 py-1 rounded-full border ${statusColors[society.status]}`}>
               {society.status}
             </span>
@@ -184,11 +219,18 @@ function SocietyCard({ society, onApprove, onSuspend, onDelete, actionPending }:
               </Button>
             )}
             {society.status === 'ACTIVE' && (
-              <Button size="sm" variant="destructive" onClick={onSuspend} disabled={actionPending} className="gap-1.5">
+              <Button size="sm" variant="outline" onClick={onSuspend} disabled={actionPending} className="gap-1.5 border-yellow-500/30 text-yellow-600 hover:bg-yellow-500/10">
                 <XCircle className="h-4 w-4" /> Suspend
               </Button>
             )}
-            <Button size="sm" variant="ghost" className="text-destructive hover:bg-destructive/10" onClick={onDelete} disabled={actionPending} title="Delete Society Permanently">
+            <Button
+              size="sm"
+              variant="ghost"
+              className="text-destructive hover:bg-destructive/10 h-9 w-9 p-0"
+              onClick={onDelete}
+              disabled={actionPending}
+              title="Delete Society Permanently"
+            >
               {actionPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
             </Button>
           </div>

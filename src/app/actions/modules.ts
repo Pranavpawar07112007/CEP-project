@@ -3,6 +3,7 @@
 import { createClient as createSupabaseServiceClient } from '@supabase/supabase-js';
 import { createClient } from '@/utils/supabase/server';
 import { sendSocietyEmail } from '@/lib/email';
+import crypto from 'crypto';
 
 // ─────────────────────────────────────────────────────────────
 // Service-role client – bypasses ALL RLS policies.
@@ -178,6 +179,28 @@ export async function createMaintenanceBills(bills: {
   return error ? { error: error.message } : { success: true };
 }
 
+export async function updateBillAmount(billId: string, amount: number) {
+  const user = await getVerifiedUser();
+  if (!user) return { error: 'Unauthorized' };
+  
+  const service = getServiceClient();
+  
+  // Verify caller is admin/secretary
+  const { data: profile } = await service.from('profiles').select('role, society_id').eq('id', user.id).single();
+  if (!profile || !['ADMIN', 'SECRETARY'].includes(profile.role)) {
+    return { error: 'Only Admin or Secretary can edit bill amounts.' };
+  }
+
+  // Verify bill belongs to same society
+  const { data: bill } = await service.from('maintenance_bills').select('society_id, status').eq('id', billId).single();
+  if (!bill) return { error: 'Bill not found.' };
+  if (bill.society_id !== profile.society_id) return { error: 'Unauthorized.' };
+  if (bill.status === 'PAID') return { error: 'Cannot edit a paid bill.' };
+
+  const { error } = await service.from('maintenance_bills').update({ amount }).eq('id', billId);
+  return error ? { error: error.message } : { success: true };
+}
+
 export async function markBillAsPaidManually(billId: string) {
   const user = await getVerifiedUser();
   if (!user) return { error: 'Unauthorized' };
@@ -194,8 +217,16 @@ export async function markBillAsPaidManually(billId: string) {
   const { data: bill } = await service.from('maintenance_bills').select('*').eq('id', billId).single();
   if (!bill) return { error: 'Bill not found.' };
 
-  // 1. Mark bill as paid
-  const { error: billErr } = await service.from('maintenance_bills').update({ status: 'PAID' }).eq('id', billId);
+  // Generate a unique receipt token
+  const receiptToken = crypto.randomBytes(32).toString('hex');
+
+  // 1. Mark bill as paid with token and timestamp
+  const { error: billErr } = await service.from('maintenance_bills').update({ 
+    status: 'PAID',
+    receipt_token: receiptToken,
+    paid_at: new Date().toISOString(),
+    payment_mode: 'MANUAL/CASH',
+  }).eq('id', billId);
   if (billErr) return { error: billErr.message };
 
   // 2. Create transaction record for audit
@@ -221,7 +252,82 @@ export async function markBillAsPaidManually(billId: string) {
     });
   }
   
-  return { success: true };
+  return { success: true, receiptToken };
+}
+
+// ─────────────────────────────────────────────────────────────
+// RECEIPT: Generate a shareable public token for a paid bill
+// ─────────────────────────────────────────────────────────────
+export async function generateReceiptToken(billId: string) {
+  const user = await getVerifiedUser();
+  if (!user) return { error: 'Unauthorized' };
+
+  const service = getServiceClient();
+
+  // Get the bill
+  const { data: bill } = await service
+    .from('maintenance_bills')
+    .select('status, receipt_token, society_id, user_id')
+    .eq('id', billId)
+    .single();
+
+  if (!bill) return { error: 'Bill not found.' };
+  if (bill.status !== 'PAID') return { error: 'Can only share receipts for paid bills.' };
+
+  // Check access: must be the bill owner or an admin
+  const { data: profile } = await service.from('profiles').select('role, society_id').eq('id', user.id).single();
+  const isAdminOrSecretary = profile && ['ADMIN', 'SECRETARY'].includes(profile.role) && profile.society_id === bill.society_id;
+  const isOwner = bill.user_id === user.id;
+
+  if (!isAdminOrSecretary && !isOwner) {
+    return { error: 'Unauthorized.' };
+  }
+
+  // If already has a token, return it
+  if (bill.receipt_token) {
+    return { success: true, token: bill.receipt_token };
+  }
+
+  // Generate a new token
+  const token = crypto.randomBytes(32).toString('hex');
+  const { error } = await service
+    .from('maintenance_bills')
+    .update({ receipt_token: token })
+    .eq('id', billId);
+
+  if (error) return { error: error.message };
+  return { success: true, token };
+}
+
+// ─────────────────────────────────────────────────────────────
+// RECEIPT: Get receipt data by public token (no auth needed)
+// ─────────────────────────────────────────────────────────────
+export async function getReceiptByToken(token: string) {
+  const service = getServiceClient();
+
+  const { data: bill, error } = await service
+    .from('maintenance_bills')
+    .select(`
+      id, month, amount, status, paid_at, payment_mode, receipt_token,
+      profiles:user_id (first_name, last_name, flat_number, phone),
+      societies:society_id (name, address, city, state)
+    `)
+    .eq('receipt_token', token)
+    .eq('status', 'PAID')
+    .single();
+
+  if (error || !bill) return { error: 'Receipt not found.' };
+
+  // Also get the transaction for payment ID
+  const { data: transaction } = await service
+    .from('transactions')
+    .select('razorpay_payment_id, payment_mode, created_at')
+    .eq('bill_id', bill.id)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  return { success: true, bill, transaction };
 }
 
 // ─────────────────────────────────────────────────────────────

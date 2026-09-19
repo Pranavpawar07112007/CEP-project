@@ -13,6 +13,7 @@ import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
 import { PlusCircle, Trash2, Megaphone, CalendarCheck, PartyPopper, Newspaper, Loader2 } from 'lucide-react';
 import { createNotice, deleteNotice } from '@/app/actions/modules';
+import { useConfirmDialog } from '@/components/ui/confirm-dialog';
 
 const NOTICE_TYPES = [
   { value: 'ANNOUNCEMENT', label: 'Announcement', icon: Megaphone, color: 'bg-blue-500/10 text-blue-600 border-blue-500/20' },
@@ -41,6 +42,7 @@ export default function NoticesPage() {
   const [form, setForm] = React.useState({ title: '', content: '', type: 'ANNOUNCEMENT' });
 
   const isAdmin = profile?.role === 'ADMIN' || profile?.role === 'SECRETARY';
+  const { confirm, ConfirmDialogNode } = useConfirmDialog();
 
   const fetchNotices = React.useCallback(async () => {
     if (!profile?.society_id) return;
@@ -75,9 +77,17 @@ export default function NoticesPage() {
     });
   };
 
-  const handleDelete = async (id: string) => {
-    await deleteNotice(id);
-    toast({ title: 'Notice removed.' });
+  const handleDelete = async (notice: Notice) => {
+    const ok = await confirm({
+      title: 'Delete Notice?',
+      description: `Are you sure you want to delete "${notice.title}"? Members will no longer be able to see it.`,
+      confirmLabel: 'Delete',
+      variant: 'danger',
+    });
+    if (!ok) return;
+
+    await deleteNotice(notice.id);
+    toast({ title: '🗑️ Notice removed.' });
     fetchNotices();
   };
 
@@ -85,6 +95,7 @@ export default function NoticesPage() {
 
   return (
     <div className="space-y-6 animate-fade-in">
+      {ConfirmDialogNode}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Notice Board</h1>
@@ -181,7 +192,7 @@ export default function NoticesPage() {
                     </div>
                   </div>
                   {isAdmin && (
-                    <Button size="icon" variant="ghost" className="opacity-0 group-hover:opacity-100 transition-opacity text-destructive hover:text-destructive hover:bg-destructive/10 shrink-0" onClick={() => handleDelete(notice.id)}>
+                    <Button size="icon" variant="ghost" className="opacity-0 group-hover:opacity-100 transition-opacity text-destructive hover:text-destructive hover:bg-destructive/10 shrink-0" onClick={() => handleDelete(notice)}>
                       <Trash2 className="h-4 w-4" />
                     </Button>
                   )}

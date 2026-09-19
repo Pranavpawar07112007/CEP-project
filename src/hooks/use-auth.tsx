@@ -8,9 +8,10 @@ import type { User } from '@supabase/supabase-js';
 interface AuthContextType {
   user: User | null;
   loading: boolean;
-  profile: any | null; // We can type this better later
+  profile: any | null;
   society: any | null;
   signOut: () => Promise<void>;
+  refreshSociety: () => Promise<void>;
 }
 
 const AuthContext = React.createContext<AuthContextType | undefined>(undefined);
@@ -23,27 +24,41 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const supabase = createClient();
 
+  const fetchProfileAndSociety = async (userId: string) => {
+    const { data: profileData } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('id', userId)
+      .single();
+    setProfile(profileData);
+
+    if (profileData?.society_id) {
+      const { data: societyData } = await supabase
+        .from('societies')
+        .select('*')
+        .eq('id', profileData.society_id)
+        .single();
+      setSociety(societyData);
+    } else {
+      setSociety(null);
+    }
+    return profileData;
+  };
+
+  // Expose a way to re-fetch society data after an update (e.g. after setup wizard)
+  const refreshSociety = async () => {
+    if (!user) return;
+    await fetchProfileAndSociety(user.id);
+  };
+
   React.useEffect(() => {
     const fetchUser = async () => {
       setLoading(true);
       const { data: { session } } = await supabase.auth.getSession();
       setUser(session?.user ?? null);
-      
+
       if (session?.user) {
-        const { data: profileData } = await supabase
-          .from('profiles')
-          .select('*')
-          .eq('id', session.user.id)
-          .single();
-        setProfile(profileData);
-        if (profileData?.society_id) {
-          const { data: societyData } = await supabase
-            .from('societies')
-            .select('*')
-            .eq('id', profileData.society_id)
-            .single();
-          setSociety(societyData);
-        }
+        await fetchProfileAndSociety(session.user.id);
       }
       setLoading(false);
     };
@@ -53,20 +68,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
       setUser(session?.user ?? null);
       if (session?.user) {
-        const { data: profileData } = await supabase
-          .from('profiles')
-          .select('*')
-          .eq('id', session.user.id)
-          .single();
-        setProfile(profileData);
-        if (profileData?.society_id) {
-          const { data: societyData } = await supabase
-            .from('societies')
-            .select('*')
-            .eq('id', profileData.society_id)
-            .single();
-          setSociety(societyData);
-        }
+        await fetchProfileAndSociety(session.user.id);
       } else {
         setProfile(null);
         setSociety(null);
@@ -77,7 +79,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => {
       subscription.unsubscribe();
     };
-  }, [supabase]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const signOut = async () => {
     setLoading(true);
@@ -85,14 +88,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       await supabase.auth.signOut();
       router.push('/sign-in');
     } catch (error) {
-      console.error("Error signing out", error);
+      console.error('Error signing out', error);
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <AuthContext.Provider value={{ user, profile, society, loading, signOut }}>
+    <AuthContext.Provider value={{ user, profile, society, loading, signOut, refreshSociety }}>
       {children}
     </AuthContext.Provider>
   );

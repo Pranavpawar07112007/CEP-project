@@ -86,10 +86,16 @@ export async function verifyAndRecordPayment(data: {
   });
   if (txnErr) return { error: txnErr.message };
 
-  // 5. Mark bill as PAID
+  // 5. Mark bill as PAID with receipt token and timestamp
+  const receiptToken = crypto.randomBytes(32).toString('hex');
   const { error: billErr } = await service
     .from('maintenance_bills')
-    .update({ status: 'PAID' })
+    .update({ 
+      status: 'PAID',
+      receipt_token: receiptToken,
+      paid_at: new Date().toISOString(),
+      payment_mode: 'RAZORPAY',
+    })
     .eq('id', data.billId);
   if (billErr) return { error: billErr.message };
 
