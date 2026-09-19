@@ -1,25 +1,15 @@
-
 'use client';
 
 import * as React from 'react';
-import { 
-  onAuthStateChanged, 
-  User, 
-  signOut as firebaseSignOut,
-  createUserWithEmailAndPassword,
-  signInWithEmailAndPassword,
-} from 'firebase/auth';
-import { auth } from '@/lib/firebase';
 import { useRouter } from 'next/navigation';
-
-const ADMIN_EMAILS = ['pawardee.pawar@gmail.com', 'pranav07112007@gmail.com'];
+import { createClient } from '@/utils/supabase/client';
+import type { User } from '@supabase/supabase-js';
 
 interface AuthContextType {
   user: User | null;
   loading: boolean;
-  isEditor: boolean;
-  signUp: (email: string, pass: string) => Promise<void>;
-  signIn: (email: string, pass: string) => Promise<void>;
+  profile: any | null; // We can type this better later
+  society: any | null;
   signOut: () => Promise<void>;
 }
 
@@ -27,56 +17,72 @@ const AuthContext = React.createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = React.useState<User | null>(null);
+  const [profile, setProfile] = React.useState<any | null>(null);
+  const [society, setSociety] = React.useState<any | null>(null);
   const [loading, setLoading] = React.useState(true);
-  const [isEditor, setIsEditor] = React.useState(false);
   const router = useRouter();
+  const supabase = createClient();
 
   React.useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
-      setUser(user);
-      setIsEditor(user ? ADMIN_EMAILS.includes(user.email || '') : false);
+    const fetchUser = async () => {
+      setLoading(true);
+      const { data: { session } } = await supabase.auth.getSession();
+      setUser(session?.user ?? null);
+      
+      if (session?.user) {
+        const { data: profileData } = await supabase
+          .from('profiles')
+          .select('*')
+          .eq('id', session.user.id)
+          .single();
+        setProfile(profileData);
+        if (profileData?.society_id) {
+          const { data: societyData } = await supabase
+            .from('societies')
+            .select('*')
+            .eq('id', profileData.society_id)
+            .single();
+          setSociety(societyData);
+        }
+      }
+      setLoading(false);
+    };
+
+    fetchUser();
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      setUser(session?.user ?? null);
+      if (session?.user) {
+        const { data: profileData } = await supabase
+          .from('profiles')
+          .select('*')
+          .eq('id', session.user.id)
+          .single();
+        setProfile(profileData);
+        if (profileData?.society_id) {
+          const { data: societyData } = await supabase
+            .from('societies')
+            .select('*')
+            .eq('id', profileData.society_id)
+            .single();
+          setSociety(societyData);
+        }
+      } else {
+        setProfile(null);
+        setSociety(null);
+      }
       setLoading(false);
     });
 
-    return () => unsubscribe();
-  }, []);
-
-  const signUp = async (email: string, pass: string) => {
-    setLoading(true);
-    try {
-      await createUserWithEmailAndPassword(auth, email, pass);
-    } catch (error: any) {
-      if (error?.code === 'auth/email-already-in-use') {
-        // This is an expected error, rethrow it to be handled by the UI
-        throw error;
-      }
-      console.error("Error signing up", error);
-      throw error;
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const signIn = async (email: string, pass: string) => {
-    setLoading(true);
-    try {
-      await signInWithEmailAndPassword(auth, email, pass);
-    } catch (error: any) {
-        if (error?.code === 'auth/invalid-credential') {
-            // This is an expected error, rethrow it to be handled by the UI
-            throw error;
-        }
-        console.error("Error signing in", error);
-        throw error;
-    } finally {
-      setLoading(false);
-    }
-  };
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, [supabase]);
 
   const signOut = async () => {
     setLoading(true);
     try {
-      await firebaseSignOut(auth);
+      await supabase.auth.signOut();
       router.push('/sign-in');
     } catch (error) {
       console.error("Error signing out", error);
@@ -85,16 +91,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const value = {
-    user,
-    loading,
-    isEditor,
-    signUp,
-    signIn,
-    signOut,
-  };
-
-  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+  return (
+    <AuthContext.Provider value={{ user, profile, society, loading, signOut }}>
+      {children}
+    </AuthContext.Provider>
+  );
 }
 
 export function useAuth() {
